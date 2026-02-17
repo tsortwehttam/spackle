@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.claude/
+
+# JS (if used)
+node_modules/
+
+# Build outputs
+build/
+dist/
+.build/
+
+# Xcode user-local state
+**/xcuserdata/
+**/*.xcuserstate
+
+# Temp / logs
+*.log
+tmp/
