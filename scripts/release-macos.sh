@@ -94,12 +94,15 @@ fi
 if [[ "$PACKAGE_FORMAT" == "all" || "$PACKAGE_FORMAT" == "dmg" ]]; then
   echo "==> Building dmg: $DMG_PATH"
   DMG_ROOT="$BUILD_DIR/dmg-root"
-  rm -rf "$DMG_ROOT" "$DMG_PATH"
+  DMG_RW="$BUILD_DIR/$APP_NAME-rw.dmg"
+  rm -rf "$DMG_ROOT" "$DMG_PATH" "$DMG_RW"
   mkdir -p "$DMG_ROOT"
   cp -R "$APP_PATH" "$DMG_ROOT/"
   ln -s /Applications "$DMG_ROOT/Applications"
-  hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
+  hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_ROOT" -ov -format UDRW "$DMG_RW"
   rm -rf "$DMG_ROOT"
+  hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_PATH"
+  rm -f "$DMG_RW"
 
   if [[ -n "$NOTARY_PROFILE" ]]; then
     echo "==> Notarizing dmg"
