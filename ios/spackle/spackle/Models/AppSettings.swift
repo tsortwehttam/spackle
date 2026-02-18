@@ -11,38 +11,62 @@ enum ProviderKind: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
-enum RewriteShortcut: String, CaseIterable, Identifiable, Codable {
-    case ctrlShiftR = "ctrl_shift_r"
-    case cmdOptR = "cmd_opt_r"
-    case cmdOptShiftR = "cmd_opt_shift_r"
-    case cmdOptG = "cmd_opt_g"
+struct ShortcutBinding: Codable, Equatable, Hashable {
+    var keyCode: UInt16
+    var modifierFlags: UInt
 
-    var id: String { rawValue }
+    static let defaultShortcut = ShortcutBinding(
+        keyCode: UInt16(kVK_ANSI_I),
+        modifierFlags: NSEvent.ModifierFlags([.command, .option, .control]).rawValue
+    )
+
+    var asModifierFlags: NSEvent.ModifierFlags { .init(rawValue: modifierFlags) }
 
     var displayName: String {
-        switch self {
-        case .ctrlShiftR: return "⌃⇧R"
-        case .cmdOptR: return "⌘⌥R"
-        case .cmdOptShiftR: return "⌘⌥⇧R"
-        case .cmdOptG: return "⌘⌥G"
-        }
+        var result = ""
+        let flags = asModifierFlags
+        if flags.contains(.control) { result += "⌃" }
+        if flags.contains(.option) { result += "⌥" }
+        if flags.contains(.shift) { result += "⇧" }
+        if flags.contains(.command) { result += "⌘" }
+        result += calcKeyName(for: keyCode)
+        return result
     }
 
-    var keyCode: UInt16 {
-        switch self {
-        case .ctrlShiftR, .cmdOptR, .cmdOptShiftR: return UInt16(kVK_ANSI_R)
-        case .cmdOptG: return UInt16(kVK_ANSI_G)
-        }
-    }
 
-    var modifierFlags: NSEvent.ModifierFlags {
-        switch self {
-        case .ctrlShiftR: return [.control, .shift]
-        case .cmdOptR: return [.command, .option]
-        case .cmdOptShiftR: return [.command, .option, .shift]
-        case .cmdOptG: return [.command, .option]
-        }
+}
+
+private let specialKeyNames: [UInt16: String] = [
+    36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 53: "⎋",
+    63: "fn", 76: "↩", 96: "F5", 97: "F6", 98: "F7",
+    99: "F3", 100: "F8", 101: "F9", 103: "F11", 105: "F13",
+    107: "F14", 109: "F10", 111: "F12", 113: "F15",
+    114: "⌦", 115: "↖", 116: "⇞", 117: "⌦", 119: "↘",
+    120: "F2", 121: "⇟", 122: "F1", 123: "←", 124: "→",
+    125: "↓", 126: "↑",
+]
+
+private func calcKeyName(for keyCode: UInt16) -> String {
+    if let sym = specialKeyNames[keyCode] { return sym }
+
+    guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+          let layoutPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+        return "(\(keyCode))"
     }
+    let layoutData = Unmanaged<CFData>.fromOpaque(layoutPtr).takeUnretainedValue()
+    let keyLayout = unsafeBitCast(CFDataGetBytePtr(layoutData), to: UnsafePointer<UCKeyboardLayout>.self)
+    var deadKeyState: UInt32 = 0
+    var chars = [UniChar](repeating: 0, count: 4)
+    var charCount = 0
+    let err = UCKeyTranslate(
+        keyLayout, keyCode, UInt16(kUCKeyActionDisplay),
+        0, UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit),
+        &deadKeyState, 4, &charCount, &chars
+    )
+    if err == noErr, charCount > 0 {
+        return String(String.UnicodeScalarView(chars[..<charCount].compactMap { Unicode.Scalar($0) })).uppercased()
+    }
+    return "(\(keyCode))"
 }
 
 enum IndicatorPlacement: String, CaseIterable, Identifiable, Codable {
@@ -74,7 +98,8 @@ struct AppSettings: Codable {
     var systemPromptTemplate: String
     var useClipboardFallback: Bool
     var indicatorPlacement: IndicatorPlacement
-    var rewriteShortcut: RewriteShortcut
+    var rewriteShortcut: ShortcutBinding
+    var apiKey: String
 
     static let `default` = AppSettings(
         provider: .openAI,
@@ -101,7 +126,8 @@ Return only what should go between DELIM_L and DELIM_R:
 """,
         useClipboardFallback: true,
         indicatorPlacement: .menuBar,
-        rewriteShortcut: .ctrlShiftR
+        rewriteShortcut: .defaultShortcut,
+        apiKey: ""
     )
 
     init(
@@ -122,7 +148,8 @@ Return only what should go between DELIM_L and DELIM_R:
         systemPromptTemplate: String,
         useClipboardFallback: Bool,
         indicatorPlacement: IndicatorPlacement,
-        rewriteShortcut: RewriteShortcut
+        rewriteShortcut: ShortcutBinding,
+        apiKey: String = ""
     ) {
         self.provider = provider
         self.model = model
@@ -142,6 +169,7 @@ Return only what should go between DELIM_L and DELIM_R:
         self.useClipboardFallback = useClipboardFallback
         self.indicatorPlacement = indicatorPlacement
         self.rewriteShortcut = rewriteShortcut
+        self.apiKey = apiKey
     }
 
     init(from decoder: Decoder) throws {
@@ -165,7 +193,8 @@ Return only what should go between DELIM_L and DELIM_R:
             systemPromptTemplate: try c.decodeIfPresent(String.self, forKey: .systemPromptTemplate) ?? d.systemPromptTemplate,
             useClipboardFallback: try c.decodeIfPresent(Bool.self, forKey: .useClipboardFallback) ?? d.useClipboardFallback,
             indicatorPlacement: try c.decodeIfPresent(IndicatorPlacement.self, forKey: .indicatorPlacement) ?? d.indicatorPlacement,
-            rewriteShortcut: try c.decodeIfPresent(RewriteShortcut.self, forKey: .rewriteShortcut) ?? d.rewriteShortcut
+            rewriteShortcut: try c.decodeIfPresent(ShortcutBinding.self, forKey: .rewriteShortcut) ?? d.rewriteShortcut,
+            apiKey: try c.decodeIfPresent(String.self, forKey: .apiKey) ?? d.apiKey
         )
     }
 }

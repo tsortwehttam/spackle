@@ -2,7 +2,7 @@
 
 Spackle is a macOS menu bar app for inline AI rewrites.
 
-Highlight text in any app, hit a shortcut (Control-Shift-R by default), and your selected text is replaced in place.
+Highlight text in any app, hit a shortcut (⌘⌥⌃I by default), and your selected text is replaced in place.
 
 Project homepage and download: https://aisatsu.co/spackle/
 

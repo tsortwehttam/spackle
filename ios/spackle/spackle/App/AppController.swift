@@ -3,6 +3,7 @@ import ApplicationServices
 import Carbon
 import Combine
 import Foundation
+import SwiftUI
 
 enum EngineState: String {
     case idle = "Idle"
@@ -12,22 +13,26 @@ enum EngineState: String {
 }
 
 @MainActor
-final class AppController: ObservableObject {
+final class AppController: NSObject, ObservableObject {
     var selectionRewriteShortcut: String { settings.rewriteShortcut.displayName }
 
     @Published var state: EngineState = .idle
     @Published var statusText = "Idle"
     @Published var hasAccessibility = false
     @Published var settings = AppSettings.default
-    @Published var apiKey = ""
+
+    var apiKey: String {
+        get { settings.apiKey }
+        set { settings.apiKey = newValue }
+    }
 
     private let settingsStore = SettingsStore()
-    private let keychain = KeychainStore()
     private let ax = AccessibilityService()
     private let llm = LLMClient()
     private let toast = ToastService()
     private let replacement: ReplacementService
     private let settingsWindow = SettingsWindowController()
+    private(set) var statusItem: NSStatusItem!
 
     private var monitor: FocusedElementMonitor
     private var signals: InputSignalMonitor
@@ -45,10 +50,11 @@ final class AppController: ObservableObject {
     private var lastProbeReport = ""
     private var bag = Set<AnyCancellable>()
 
-    init() {
+    override init() {
         replacement = ReplacementService(ax: ax)
         monitor = FocusedElementMonitor(ax: ax)
         signals = InputSignalMonitor(settings: { .default })
+        super.init()
 
         monitor.onTextChange = { [weak self] snapshot in
             guard let self else { return }
@@ -97,7 +103,6 @@ final class AppController: ObservableObject {
             settings.spokenEnd = AppSettings.default.spokenEnd
             settingsStore.setSettings(settings)
         }
-        apiKey = keychain.getAPIKey()
         signals = InputSignalMonitor(settings: { [weak self] in
             self?.settings ?? .default
         })
@@ -125,6 +130,7 @@ final class AppController: ObservableObject {
         if hasAccessibility {
             start()
         }
+        setupStatusItem()
         bindEscCancel()
         bindAutosave()
         showAboutOnFirstLaunch()
@@ -165,23 +171,36 @@ final class AppController: ObservableObject {
         signals.start()
     }
 
+    func refreshAccessibility() {
+        let trusted = ax.isTrusted(prompt: false)
+        if trusted != hasAccessibility {
+            hasAccessibility = trusted
+            if trusted {
+                start()
+            }
+        }
+    }
+
     func requestAccessibility() {
         _ = ax.isTrusted(prompt: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        pollAccessibility(attemptsRemaining: 15)
+    }
+
+    private func pollAccessibility(attemptsRemaining: Int) {
+        if attemptsRemaining <= 0 { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self else { return }
             self.hasAccessibility = self.ax.isTrusted(prompt: false)
             if self.hasAccessibility {
-                self.resume()
+                self.start()
+            } else {
+                self.pollAccessibility(attemptsRemaining: attemptsRemaining - 1)
             }
         }
     }
 
     func saveSettings() {
         settingsStore.setSettings(settings)
-    }
-
-    func saveAPIKey() {
-        keychain.setAPIKey(apiKey)
     }
 
     func showAbout() {
@@ -277,7 +296,16 @@ final class AppController: ObservableObject {
         }
 
         let requestID = beginAwaitingRequest()
-        let input = "DELIM_L\(prompt)DELIM_R"
+        let input: String
+        if let selectedRange {
+            let beforeCount = max(0, settings.contextBeforeChars)
+            let afterCount = max(0, settings.contextAfterChars)
+            let before = calcLeftContext(text: info.text, end: selectedRange.lowerBound, count: beforeCount)
+            let after = calcRightContext(text: info.text, start: selectedRange.upperBound, count: afterCount)
+            input = "\(before)DELIM_L\(prompt)DELIM_R\(after)"
+        } else {
+            input = "DELIM_L\(prompt)DELIM_R"
+        }
         let systemPrompt = calcSystemPrompt(input: input)
         let oldText = info.text
         let oldUTF16Base = info.utf16Base
@@ -581,6 +609,9 @@ final class AppController: ObservableObject {
         statusText = "AwaitingResponse"
         let requestID = UUID()
         activeRequestID = requestID
+        if settings.indicatorPlacement == .menuBar {
+            toast.show(message: "Spackling...", ttl: 0, pinToMenuBar: true)
+        }
         return requestID
     }
 
@@ -1007,6 +1038,84 @@ final class AppController: ObservableObject {
         pendingFallbackTask.cancel()
     }
 
+    private let statusMenu = NSMenu()
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        guard let button = statusItem.button else { return }
+        button.image = NSImage(named: "MenuBarIcon")
+        button.image?.isTemplate = true
+        statusItem.menu = statusMenu
+        statusMenu.delegate = self
+        toast.statusItem = statusItem
+    }
+
+    fileprivate func rebuildStatusMenu() {
+        statusMenu.removeAllItems()
+
+        let statusTitle = calcMenuStatusText()
+        let statusItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        statusMenu.addItem(statusItem)
+
+        if hasAccessibility {
+            if settings.typedEnabled {
+                let toggleTitle = state == .paused ? "Resume Listening" : "Pause Listening"
+                let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(togglePauseResume), keyEquivalent: "")
+                toggleItem.target = self
+                statusMenu.addItem(toggleItem)
+            }
+
+            let rewriteTitle = "Rewrite Selection (\(settings.rewriteShortcut.displayName))"
+            let rewriteItem = NSMenuItem(title: rewriteTitle, action: #selector(rewriteSelectionMenuAction), keyEquivalent: "")
+            rewriteItem.target = self
+            statusMenu.addItem(rewriteItem)
+        }
+
+        let settingsItem = NSMenuItem(title: "About & Settings", action: #selector(showAboutMenuAction), keyEquivalent: ",")
+        settingsItem.target = self
+        statusMenu.addItem(settingsItem)
+
+        statusMenu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitMenuAction), keyEquivalent: "q")
+        quitItem.target = self
+        statusMenu.addItem(quitItem)
+    }
+
+    private func calcMenuStatusText() -> String {
+        if state == .awaiting || state == .replacing {
+            return "Spackling..."
+        }
+        if state == .paused {
+            return "Paused"
+        }
+        if hasAccessibility == false {
+            return "Accessibility Required"
+        }
+        return "Ready"
+    }
+
+    @objc private func togglePauseResume() {
+        if state == .paused {
+            resume()
+        } else {
+            pause()
+        }
+    }
+
+    @objc private func rewriteSelectionMenuAction() {
+        rewriteSelectionNow()
+    }
+
+    @objc private func showAboutMenuAction() {
+        showAbout()
+    }
+
+    @objc private func quitMenuAction() {
+        NSApp.terminate(nil)
+    }
+
     private func showAboutOnFirstLaunch() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.showAbout()
@@ -1023,20 +1132,20 @@ final class AppController: ObservableObject {
             }
             .store(in: &bag)
 
-        $apiKey
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] value in
-                self?.keychain.setAPIKey(value)
-            }
-            .store(in: &bag)
-
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.settingsStore.setSettings(self.settings)
-                self.keychain.setAPIKey(self.apiKey)
             }
             .store(in: &bag)
+    }
+}
+
+extension AppController: NSMenuDelegate {
+    nonisolated func menuNeedsUpdate(_ menu: NSMenu) {
+        MainActor.assumeIsolated {
+            refreshAccessibility()
+            rebuildStatusMenu()
+        }
     }
 }

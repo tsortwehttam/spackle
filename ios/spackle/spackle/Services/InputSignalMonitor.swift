@@ -138,7 +138,7 @@ final class InputSignalMonitor {
     private func handleSelectionShortcut(_ event: NSEvent) -> Bool {
         let s = settings()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags != s.rewriteShortcut.modifierFlags || event.keyCode != s.rewriteShortcut.keyCode {
+        if flags != s.rewriteShortcut.asModifierFlags || event.keyCode != s.rewriteShortcut.keyCode {
             return false
         }
         let now = Date()

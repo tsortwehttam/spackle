@@ -27,6 +27,14 @@ fi
 mkdir -p "$BUILD_DIR" "$DIST_PATH"
 rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
 
+PBXPROJ="$PROJECT/project.pbxproj"
+CURRENT_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION' "$PBXPROJ" | sed 's/.*= *//;s/;.*//')
+BUILD_NUMBER=$((CURRENT_BUILD + 1))
+echo "==> Bumping build number: $CURRENT_BUILD -> $BUILD_NUMBER"
+sed -i '' "s/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" "$PBXPROJ"
+MARKETING_VERSION=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | sed 's/.*= *//;s/;.*//')
+echo "    Version: $MARKETING_VERSION ($BUILD_NUMBER)"
+
 EXPORT_OPTIONS="$(mktemp "$BUILD_DIR/export-options.XXXXXX.plist")"
 trap 'rm -f "$EXPORT_OPTIONS"' EXIT
 
@@ -113,6 +121,7 @@ if [[ "$PACKAGE_FORMAT" == "all" || "$PACKAGE_FORMAT" == "dmg" ]]; then
 fi
 
 echo "==> Done"
+echo "Version: $MARKETING_VERSION ($BUILD_NUMBER)"
 echo "App: $APP_PATH"
 if [[ -f "$ZIP_PATH" ]]; then
   echo "Zip: $ZIP_PATH"

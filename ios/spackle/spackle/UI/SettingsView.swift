@@ -86,10 +86,10 @@ struct SettingsView: View {
                 }
 
             Section("Selection Rewrite") {
-                    Picker("Shortcut", selection: $ctl.settings.rewriteShortcut) {
-                        ForEach(RewriteShortcut.allCases) { s in
-                            Text(s.displayName).tag(s)
-                        }
+                    HStack {
+                        Text("Shortcut")
+                        Spacer()
+                        ShortcutRecorderView(shortcut: $ctl.settings.rewriteShortcut)
                     }
                 }
 
@@ -201,7 +201,6 @@ struct SettingsView: View {
         .frame(minWidth: 640, minHeight: 700)
         .onDisappear {
             ctl.saveSettings()
-            ctl.saveAPIKey()
         }
     }
 
@@ -222,5 +221,48 @@ struct SettingsView: View {
 
     private var hasApiKey: Bool {
         ctl.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+}
+
+private let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+
+private struct ShortcutRecorderView: View {
+    @Binding var shortcut: ShortcutBinding
+    @State private var recording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        Button(recording ? "Press a shortcut…" : shortcut.displayName) {
+            startRecording()
+        }
+        .buttonStyle(.bordered)
+        .foregroundStyle(recording ? .secondary : .primary)
+        .onDisappear { stopRecording() }
+    }
+
+    private func startRecording() {
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                stopRecording()
+                return nil
+            }
+            guard modifierKeyCodes.contains(event.keyCode) == false else {
+                return event
+            }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.isEmpty == false else { return event }
+            shortcut = ShortcutBinding(keyCode: event.keyCode, modifierFlags: flags.rawValue)
+            stopRecording()
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        recording = false
+        if let m = monitor {
+            NSEvent.removeMonitor(m)
+            monitor = nil
+        }
     }
 }
