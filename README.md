@@ -1,5 +1,7 @@
 # Spackle
 
+![Spackle demo](assets/demo.gif)
+
 Spackle is a macOS menu bar app for inline AI rewrites.
 
 Highlight text in any app, hit a shortcut (⌘⌥⌃I by default), and your selected text is replaced in place.
@@ -20,6 +22,12 @@ An optional trigger mode also exists if you prefer typed or spoken delimiters.
 - Bring your own API key (stored in Keychain).
 - Choose a provider: OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint.
 - Grant Accessibility permission (required).
+
+### Settings
+
+Configure provider, model, key, and shortcut from the app settings.
+
+![Spackle settings](assets/screenshot.png)
 
 ## Privacy
 

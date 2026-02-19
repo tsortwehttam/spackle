@@ -178,6 +178,9 @@ struct SettingsView: View {
                 Text("Advanced")
             } footer: {
                 VStack(alignment: .leading, spacing: SPACE_XXS) {
+                    Text(appVersionText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                     Text("Copyright © 2026")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -221,6 +224,23 @@ struct SettingsView: View {
 
     private var hasApiKey: Bool {
         ctl.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private var appVersionText: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        let v = short?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let b = build?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if v.isEmpty && b.isEmpty {
+            return "Version unknown"
+        }
+        if v.isEmpty {
+            return "Build \(b)"
+        }
+        if b.isEmpty || b == v {
+            return "Version \(v)"
+        }
+        return "Version \(v) (\(b))"
     }
 }
 

@@ -48,6 +48,7 @@ final class AppController: NSObject, ObservableObject {
     private var lastFallbackSignature = ""
     private var pendingFallbackTask = Task<Void, Never> {}
     private var lastProbeReport = ""
+    private var accessibilityPollTask = Task<Void, Never> {}
     private var bag = Set<AnyCancellable>()
 
     override init() {
@@ -182,20 +183,43 @@ final class AppController: NSObject, ObservableObject {
     }
 
     func requestAccessibility() {
+        accessibilityPollTask.cancel()
+        let alreadyTrusted = ax.isTrusted(prompt: false)
         _ = ax.isTrusted(prompt: true)
-        pollAccessibility(attemptsRemaining: 15)
+        if alreadyTrusted {
+            hasAccessibility = true
+            start()
+            showToast(message: "Accessibility already granted", ttl: 1.4, element: nil)
+            return
+        }
+        showToast(message: "Enable Spackle in Accessibility settings", ttl: 3.0, element: nil)
+        accessibilityPollTask = Task { [weak self] in
+            guard let self else { return }
+            await self.pollAccessibility(maxSeconds: 180)
+        }
     }
 
-    private func pollAccessibility(attemptsRemaining: Int) {
-        if attemptsRemaining <= 0 { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            self.hasAccessibility = self.ax.isTrusted(prompt: false)
-            if self.hasAccessibility {
-                self.start()
-            } else {
-                self.pollAccessibility(attemptsRemaining: attemptsRemaining - 1)
+    private func pollAccessibility(maxSeconds: Int) async {
+        if maxSeconds <= 0 { return }
+        for i in 0..<maxSeconds {
+            if Task.isCancelled {
+                return
             }
+            let trusted = ax.isTrusted(prompt: false)
+            if trusted {
+                hasAccessibility = true
+                start()
+                showToast(message: "Accessibility granted", ttl: 1.4, element: nil)
+                return
+            }
+            if i == maxSeconds - 1 {
+                refreshAccessibility()
+                if hasAccessibility == false {
+                    showToast(message: "Still waiting for accessibility permission", ttl: 2.0, element: nil)
+                }
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
