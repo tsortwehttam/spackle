@@ -252,6 +252,10 @@ final class AppController: NSObject, ObservableObject {
     }
 
     func rewriteSelectionNow() {
+        if hasAccessibility == false {
+            toast.show(message: "Please grant accessibility", ttl: 3.0, pinToMenuBar: true)
+            return
+        }
         if canRun == false || state != .idle || Date() < suppressUntil {
             return
         }
