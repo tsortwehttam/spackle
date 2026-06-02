@@ -52,6 +52,11 @@ final class AppController: NSObject, ObservableObject {
     private var bag = Set<AnyCancellable>()
 
     override init() {
+        NSSetUncaughtExceptionHandler { exception in
+            NSLog("Spackle uncaught exception: \(exception)")
+            NSLog("Stack: \(exception.callStackSymbols.joined(separator: "\n"))")
+        }
+
         replacement = ReplacementService(ax: ax)
         monitor = FocusedElementMonitor(ax: ax)
         signals = InputSignalMonitor(settings: { .default })
@@ -90,11 +95,6 @@ final class AppController: NSObject, ObservableObject {
         }
 
         settings = settingsStore.getSettings()
-        if settings.provider == .custom {
-            settings.provider = .openAI
-            settings.customBaseURL = ""
-            settingsStore.setSettings(settings)
-        }
         if settings.spokenStart == "prompt" && settings.spokenEnd == "done" {
             settings.spokenStart = AppSettings.default.spokenStart
             settings.spokenEnd = AppSettings.default.spokenEnd
@@ -369,13 +369,15 @@ final class AppController: NSObject, ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    if self.activeRequestID != requestID {
-                        return
+                    do {
+                        if self.activeRequestID != requestID { return }
+                        self.state = .idle
+                        self.statusText = "Active"
+                        self.toast.hideNow()
+                        self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: element)
+                    } catch {
+                        NSLog("Spackle error handler failed: \(error)")
                     }
-                    self.state = .idle
-                    self.statusText = "Active"
-                    self.toast.hideNow()
-                    self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: element)
                 }
             }
         }
@@ -527,13 +529,15 @@ final class AppController: NSObject, ObservableObject {
                 )
             } catch {
                 await MainActor.run {
-                    if self.activeRequestID != requestID {
-                        return
+                    do {
+                        if self.activeRequestID != requestID { return }
+                        self.state = .idle
+                        self.statusText = "Active"
+                        self.toast.hideNow()
+                        self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: nil)
+                    } catch {
+                        NSLog("Spackle error handler failed: \(error)")
                     }
-                    self.state = .idle
-                    self.statusText = "Active"
-                    self.toast.hideNow()
-                    self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: element)
                 }
             }
         }
@@ -609,13 +613,15 @@ final class AppController: NSObject, ObservableObject {
                 )
             } catch {
                 await MainActor.run {
-                    if self.activeRequestID != requestID {
-                        return
+                    do {
+                        if self.activeRequestID != requestID { return }
+                        self.state = .idle
+                        self.statusText = "Active"
+                        self.toast.hideNow()
+                        self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: nil)
+                    } catch {
+                        NSLog("Spackle error handler failed: \(error)")
                     }
-                    self.state = .idle
-                    self.statusText = "Active"
-                    self.toast.hideNow()
-                    self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: nil)
                 }
             }
         }
@@ -1079,6 +1085,7 @@ final class AppController: NSObject, ObservableObject {
     }
 
     fileprivate func rebuildStatusMenu() {
+        let l10n = LocalizationManager.shared
         statusMenu.removeAllItems()
 
         let statusTitle = calcMenuStatusText()
@@ -1088,40 +1095,42 @@ final class AppController: NSObject, ObservableObject {
 
         if hasAccessibility {
             if settings.typedEnabled {
-                let toggleTitle = state == .paused ? "Resume Listening" : "Pause Listening"
+                let toggleTitle = l10n.tr(state == .paused ? "Resume Listening" : "Pause Listening")
                 let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(togglePauseResume), keyEquivalent: "")
                 toggleItem.target = self
                 statusMenu.addItem(toggleItem)
             }
 
-            let rewriteTitle = "Rewrite Selection (\(settings.rewriteShortcut.displayName))"
+            let rewriteTitle = "\(l10n.tr("Rewrite Selection")) (\(settings.rewriteShortcut.displayName))"
             let rewriteItem = NSMenuItem(title: rewriteTitle, action: #selector(rewriteSelectionMenuAction), keyEquivalent: "")
             rewriteItem.target = self
             statusMenu.addItem(rewriteItem)
         }
 
-        let settingsItem = NSMenuItem(title: "About & Settings", action: #selector(showAboutMenuAction), keyEquivalent: ",")
+        let settingsTitle = l10n.tr("About & Settings")
+        let settingsItem = NSMenuItem(title: settingsTitle, action: #selector(showAboutMenuAction), keyEquivalent: ",")
         settingsItem.target = self
         statusMenu.addItem(settingsItem)
 
         statusMenu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitMenuAction), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: l10n.tr("Quit"), action: #selector(quitMenuAction), keyEquivalent: "q")
         quitItem.target = self
         statusMenu.addItem(quitItem)
     }
 
     private func calcMenuStatusText() -> String {
+        let l10n = LocalizationManager.shared
         if state == .awaiting || state == .replacing {
-            return "Spackling..."
+            return l10n.tr("Spackling...")
         }
         if state == .paused {
-            return "Paused"
+            return l10n.tr("Paused")
         }
         if hasAccessibility == false {
-            return "Accessibility Required"
+            return l10n.tr("Accessibility Required")
         }
-        return "Ready"
+        return l10n.tr("Ready")
     }
 
     @objc private func togglePauseResume() {
