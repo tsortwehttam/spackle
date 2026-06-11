@@ -534,7 +534,7 @@ final class AppController: NSObject, ObservableObject {
                         self.state = .idle
                         self.statusText = "Active"
                         self.toast.hideNow()
-                        self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: nil)
+                        self.showToast(message: self.calcRequestErrorMessage(error), ttl: 1.5, element: element)
                     } catch {
                         NSLog("Spackle error handler failed: \(error)")
                     }
