@@ -2,7 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var ctl: AppController
-    private let providers: [ProviderKind] = [.openAI, .anthropic, .openRouter]
+    @ObservedObject private var l10n = LocalizationManager.shared
+    private let providers: [ProviderKind] = [.openAI, .anthropic, .openRouter, .custom]
     private let SPACE_XXS: CGFloat = 4
     private let SPACE_XS: CGFloat = 8
     private let SPACE_SM: CGFloat = 10
@@ -12,40 +13,52 @@ struct SettingsView: View {
         Form {
             Section {
                     VStack(alignment: .leading, spacing: SPACE_SM) {
-                        Text("Settings")
-                            .font(.system(size: 20, weight: .semibold))
-                        Text("Use AI to fill gaps in your writing anywhere on macOS.")
+                        HStack {
+                            Text(l10n.tr("Settings"))
+                                .font(.system(size: 20, weight: .semibold))
+                            Spacer()
+                            Picker("Language", selection: $l10n.language) {
+                                ForEach(Language.allCases) { lang in
+                                    Text(lang.displayName).tag(lang)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 120)
+                            .help(Text(verbatim: l10n.tr("Switch between English and Chinese.")))
+                        }
+
+                        Text(l10n.tr("Use AI to fill gaps in your writing anywhere on macOS."))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
 
-                        Text("How it Works")
+                        Text(l10n.tr("How it Works"))
                             .font(.system(size: 13, weight: .semibold))
 
                         VStack(alignment: .leading, spacing: SPACE_XS) {
                             HStack(spacing: SPACE_XS) {
                                 Text("1.")
-                                Button("Grant Accessibility") {
+                                Button(l10n.tr("Grant Accessibility")) {
                                     ctl.requestAccessibility()
                                 }
                                 Spacer()
-                                calcStatusBadge("Granted", isVisible: ctl.hasAccessibility)
+                                calcStatusBadge(l10n.tr("Granted"), isVisible: ctl.hasAccessibility)
                             }
-                            Text("Required so Spackle can read and replace text in other apps.")
+                            Text(l10n.tr("Required so Spackle can read and replace text in other apps."))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             HStack(spacing: SPACE_XS) {
                                 Text("2.")
-                                Text("Choose your provider and model, then add your API key.")
+                                Text(l10n.tr("Choose your provider and model, then add your API key."))
                                 Spacer()
-                                calcStatusBadge("API Key Set", isVisible: hasApiKey)
+                                calcStatusBadge(l10n.tr("API Key Set"), isVisible: hasApiKey)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                             HStack(spacing: SPACE_XS) {
                                 Text("3.")
-                                Text("Select text anywhere on your Mac, then press \(ctl.settings.rewriteShortcut.displayName) to rewrite with AI.")
+                                Text(buildStep3Text())
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,10 +66,10 @@ struct SettingsView: View {
                         .font(.system(size: 12))
 
                         HStack(spacing: SPACE_XS) {
-                            Text("Spackle is free software.")
+                            Text(l10n.tr("Spackle is free software."))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            Link("☕ Leave us a tip", destination: URL(string: "https://aisatsu.co/tips/")!)
+                            Link("☕ \(l10n.tr("Leave us a tip"))", destination: URL(string: "https://aisatsu.co/tips/")!)
                                 .font(.system(size: 12, weight: .semibold))
                         }
                     }
@@ -64,14 +77,20 @@ struct SettingsView: View {
                 }
 
             Section {
-                    Picker("Provider", selection: $ctl.settings.provider) {
+                    Picker(l10n.tr("Provider"), selection: $ctl.settings.provider) {
                         ForEach(providers) { p in
-                            Text(p.rawValue).tag(p)
+                            Text(providerLabel(p)).tag(p)
                         }
                     }
+                    .help(Text(verbatim: l10n.tr("Choose the AI provider that processes your text.")))
 
                     HStack {
-                        Text("Model")
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "cpu")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                            Text(l10n.tr("Model"))
+                        }
                         Spacer()
                         ModelComboBox(
                             value: $ctl.settings.model,
@@ -79,55 +98,93 @@ struct SettingsView: View {
                         )
                         .frame(width: 320)
                     }
+                    .help(Text(verbatim: l10n.tr("The specific AI model to use. Type any model name for custom providers.")))
 
-                    SecureField("API key", text: $ctl.apiKey)
-                } header: {
-                    Text("AI Provider")
-                }
-
-            Section("Selection Rewrite") {
-                    HStack {
-                        Text("Shortcut")
-                        Spacer()
-                        ShortcutRecorderView(shortcut: $ctl.settings.rewriteShortcut)
+                    if ctl.settings.provider == .custom {
+                        TextField(l10n.tr("Base URL (e.g. http://localhost:1234/v1/chat/completions)"), text: $ctl.settings.customBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .monospaced))
                     }
+
+                    HStack {
+                        Image(systemName: "key.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                        SecureField(l10n.tr("API key"), text: $ctl.apiKey)
+                    }
+                    .help(Text(verbatim: l10n.tr("Your API key for the selected provider.")))
+                } header: {
+                    Text(l10n.tr("AI Provider"))
                 }
 
             Section {
-                    Toggle("Enable typed triggers", isOn: $ctl.settings.typedEnabled)
+                    HStack {
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "keyboard")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                            Text(l10n.tr("Shortcut"))
+                        }
+                        Spacer()
+                        ShortcutRecorderView(shortcut: $ctl.settings.rewriteShortcut)
+                    }
+                    .help(Text(verbatim: l10n.tr("Keyboard shortcut to rewrite the selected text in place.")))
+                } header: {
+                    Text(l10n.tr("Selection Rewrite"))
+                }
+
+            Section {
+                    Toggle(isOn: $ctl.settings.typedEnabled) {
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            Text(l10n.tr("Enable typed triggers"))
+                        }
+                    }
+                    .help(Text(verbatim: l10n.tr("Wrap your prompt in delimiters (e.g. <<prompt>>) in any text field to trigger AI rewriting.")))
 
                     Group {
-                        TextField("Typed start", text: $ctl.settings.typedStart)
-                        TextField("Typed end", text: $ctl.settings.typedEnd)
+                        TextField(l10n.tr("Typed start"), text: $ctl.settings.typedStart)
+                        TextField(l10n.tr("Typed end"), text: $ctl.settings.typedEnd)
                     }
                     .disabled(ctl.settings.typedEnabled == false)
                     .opacity(ctl.settings.typedEnabled ? 1 : 0.5)
                 } header: {
-                    Text("Typed Delimiters")
+                    Text(l10n.tr("Typed Delimiters"))
                 } footer: {
-                    Text("Type a start and end delimiter in your text to trigger automatic replacement.")
+                    Text(l10n.tr("Type a start and end delimiter in your text to trigger automatic replacement."))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
             Section {
-                    Toggle("Enable spoken triggers", isOn: $ctl.settings.spokenEnabled)
+                    Toggle(isOn: $ctl.settings.spokenEnabled) {
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "waveform")
+                            Text(l10n.tr("Enable spoken triggers"))
+                        }
+                    }
+                    .help(Text(verbatim: l10n.tr("When using dictation, say the start and end words to trigger AI rewriting.")))
 
                     Group {
-                        TextField("Spoken start", text: $ctl.settings.spokenStart)
-                        TextField("Spoken end", text: $ctl.settings.spokenEnd)
+                        TextField(l10n.tr("Spoken start"), text: $ctl.settings.spokenStart)
+                        TextField(l10n.tr("Spoken end"), text: $ctl.settings.spokenEnd)
                     }
                     .disabled(ctl.settings.spokenEnabled == false)
                     .opacity(ctl.settings.spokenEnabled ? 1 : 0.5)
                 } header: {
-                    Text("Spoken Delimiters")
+                    Text(l10n.tr("Spoken Delimiters"))
                 } footer: {
-                    Text("If you're using dictation or transcription, spoken delimiters can trigger auto-replace.")
+                    Text(l10n.tr("If you're using dictation or transcription, spoken delimiters can trigger auto-replace."))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-            Section("Rewrite Context") {
+            Section {
                     HStack {
-                        Text("Chars before")
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                            Text(l10n.tr("Chars before"))
+                        }
                         Spacer()
                         Text("\(ctl.settings.contextBeforeChars)")
                             .monospacedDigit()
@@ -137,7 +194,12 @@ struct SettingsView: View {
                     }
 
                     HStack {
-                        Text("Chars after")
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                            Text(l10n.tr("Chars after"))
+                        }
                         Spacer()
                         Text("\(ctl.settings.contextAfterChars)")
                             .monospacedDigit()
@@ -145,24 +207,34 @@ struct SettingsView: View {
                         Stepper("", value: $ctl.settings.contextAfterChars, in: 0...5000, step: 25)
                             .labelsHidden()
                     }
+                } header: {
+                    Text(l10n.tr("Rewrite Context"))
                 }
+                .help(Text(verbatim: l10n.tr("Send surrounding text as context for better AI results.")))
 
-            Section("AI System Prompt") {
-                    Text("Use \(AppSettings.inputPlaceholder) where the extracted text should be inserted.")
+            Section {
+                    Text(l10n.tr("Use {{SPACKLE_INPUT}} where the extracted text should be inserted."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     TextEditor(text: $ctl.settings.systemPromptTemplate)
                         .frame(minHeight: 140)
 
-                    Button("Restore Default Prompt") {
+                    Button(l10n.tr("Restore Default Prompt")) {
                         ctl.settings.systemPromptTemplate = AppSettings.default.systemPromptTemplate
                     }
+                } header: {
+                    Text(l10n.tr("AI System Prompt"))
                 }
 
-            Section("Behavior") {
+            Section {
                     HStack {
-                        Text("Trigger delay (ms)")
+                        HStack(spacing: SPACE_XS) {
+                            Image(systemName: "timer")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                            Text(l10n.tr("Trigger delay (ms)"))
+                        }
                         Spacer()
                         Text("\(ctl.settings.triggerDelayMs)")
                             .monospacedDigit()
@@ -170,12 +242,21 @@ struct SettingsView: View {
                         Stepper("", value: $ctl.settings.triggerDelayMs, in: 0...1500, step: 50)
                             .labelsHidden()
                     }
+                    .help(Text(verbatim: l10n.tr("After typing the closing delimiter, wait this long before triggering. Prevents false triggers.")))
+                } header: {
+                    Text(l10n.tr("Behavior"))
                 }
 
             Section {
-                Toggle("Use clipboard fallback", isOn: $ctl.settings.useClipboardFallback)
+                Toggle(isOn: $ctl.settings.useClipboardFallback) {
+                    HStack(spacing: SPACE_XS) {
+                        Image(systemName: "clipboard")
+                        Text(l10n.tr("Use clipboard fallback"))
+                    }
+                }
+                .help(Text(verbatim: l10n.tr("If direct text replacement fails (common in Electron apps), fall back to clipboard paste.")))
             } header: {
-                Text("Advanced")
+                Text(l10n.tr("Advanced"))
             } footer: {
                 VStack(alignment: .leading, spacing: SPACE_XXS) {
                     Text(appVersionText)
@@ -188,10 +269,10 @@ struct SettingsView: View {
                         Link("Aisatsu LLC", destination: URL(string: "https://aisatsu.co")!)
                         Text("·")
                             .foregroundStyle(.secondary)
-                        Link("Privacy", destination: URL(string: "https://aisatsu.co/privacy")!)
+                        Link(l10n.tr("Privacy"), destination: URL(string: "https://aisatsu.co/privacy")!)
                         Text("·")
                             .foregroundStyle(.secondary)
-                        Link("Terms", destination: URL(string: "https://aisatsu.co/terms")!)
+                        Link(l10n.tr("Terms"), destination: URL(string: "https://aisatsu.co/terms")!)
                     }
                     .font(.system(size: 11))
                 }
@@ -204,6 +285,20 @@ struct SettingsView: View {
         .frame(minWidth: 640, minHeight: 700)
         .onDisappear {
             ctl.saveSettings()
+        }
+    }
+
+    private func buildStep3Text() -> String {
+        let shortcut = ctl.settings.rewriteShortcut.displayName
+        return l10n.tr("Select text anywhere on your Mac, then press %@ to rewrite with AI.", shortcut: shortcut)
+    }
+
+    private func providerLabel(_ p: ProviderKind) -> String {
+        switch p {
+        case .openAI: return l10n.tr("OpenAI")
+        case .anthropic: return l10n.tr("Anthropic")
+        case .openRouter: return l10n.tr("OpenRouter")
+        case .custom: return l10n.tr("Custom")
         }
     }
 
@@ -252,7 +347,7 @@ private struct ShortcutRecorderView: View {
     @State private var monitor: Any?
 
     var body: some View {
-        Button(recording ? "Press a shortcut…" : shortcut.displayName) {
+        Button(recording ? "Press a shortcut\u{2026}" : shortcut.displayName) {
             startRecording()
         }
         .buttonStyle(.bordered)
